@@ -1,16 +1,14 @@
 from datetime import datetime
 from fastapi import FastAPI, HTTPException
-from geopy.geocoders import Nominatim
 from pydantic import BaseModel
 import pytz
 import swisseph as swe
 from timezonefinder import TimezoneFinder
 
 app = FastAPI()
-geolocator = Nominatim(user_agent="fast_jyotish_bot", timeout=2)
 tf = TimezoneFinder()
 
-swe.set_ephe_path("")
+swe.set_ephe_path('')
 swe.set_sid_mode(swe.SIDM_LAHIRI)
 
 SIGNS = [
@@ -28,16 +26,15 @@ SIGNS = [
     "Рыбы",
 ]
 
-# Кэш популярных городов для мгновенного ответа (0.001 сек)
 FAST_CITIES = {
+    "владивосток": (43.1155, 131.8855, "Asia/Vladivostok"),
     "москва": (55.7558, 37.6173, "Europe/Moscow"),
     "санкт-петербург": (59.9343, 30.3351, "Europe/Moscow"),
-    "владивосток": (43.1155, 131.8855, "Asia/Vladivostok"),
     "новосибирск": (55.0084, 82.9357, "Asia/Novosibirsk"),
     "екатеринбург": (56.8389, 60.6057, "Asia/Yekaterinburg"),
     "казань": (55.8304, 49.0661, "Europe/Moscow"),
-    "киев": (50.4501, 30.5234, "Europe/Kiev"),
     "минск": (53.9006, 27.5590, "Europe/Minsk"),
+    "киев": (50.4501, 30.5234, "Europe/Kiev"),
     "алматы": (43.2220, 76.8512, "Asia/Almaty"),
 }
 
@@ -67,21 +64,11 @@ def calculate(data: BirthData):
   try:
     clean_date = data.date.strip()
     clean_time = data.time.strip()
-    clean_city = data.city.strip().lower().split(",")[0].strip()
+    city_key = data.city.strip().lower().split(",")[0].strip()
 
-    # 1. Мгновенная проверка по кэшу
-    if clean_city in FAST_CITIES:
-      lat, lon, tz_name = FAST_CITIES[clean_city]
-    else:
-      try:
-        loc = geolocator.geocode(clean_city)
-        if loc:
-          lat, lon = loc.latitude, loc.longitude
-          tz_name = tf.timezone_at(lng=lon, lat=lat) or "UTC"
-        else:
-          lat, lon, tz_name = 55.7558, 37.6173, "Europe/Moscow"
-      except Exception:
-        lat, lon, tz_name = 55.7558, 37.6173, "Europe/Moscow"
+    lat, lon, tz_name = FAST_CITIES.get(
+        city_key, (43.1155, 131.8855, "Asia/Vladivostok")
+    )
 
     local_tz = pytz.timezone(tz_name)
     dt_local = datetime.strptime(
