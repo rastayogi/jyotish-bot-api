@@ -7,7 +7,7 @@ import pytz
 from datetime import datetime
 
 app = FastAPI(title="Jyotish Ephemeris API")
-geolocator = Nominatim(user_agent="jyotish_bot_v2")
+geolocator = Nominatim(user_agent="jyotish_bot_v3")
 tf = TimezoneFinder()
 
 swe.set_ephe_path('')
@@ -23,7 +23,7 @@ def format_coords(degrees_total: float):
     deg_in_sign = degrees_total % 30
     d = int(deg_in_sign)
     m = int((deg_in_sign - d) * 60)
-    return SIGNS[sign_idx], f"{d}°{m:02d}'", round(degrees_total, 4)
+    return SIGNS[sign_idx], f"{d}°{m:02d}'"
 
 class BirthData(BaseModel):
     name: str = "Пользователь"
@@ -42,7 +42,6 @@ def calculate(data: BirthData):
         clean_time = data.time.strip()
         clean_city = data.city.strip()
         
-        # Поиск координат
         loc = geolocator.geocode(clean_city, timeout=10)
         if not loc:
             short_city = clean_city.split(',')[0].strip()
@@ -54,7 +53,6 @@ def calculate(data: BirthData):
         tz_name = tf.timezone_at(lng=lon, lat=lat) or "UTC"
         local_tz = pytz.timezone(tz_name)
         
-        # Расчет времени UTC
         dt_local = datetime.strptime(f"{clean_date} {clean_time}", "%d.%m.%Y %H:%M")
         dt_local = local_tz.localize(dt_local)
         dt_utc = dt_local.astimezone(pytz.utc)
@@ -62,41 +60,42 @@ def calculate(data: BirthData):
         hour_decimal = dt_utc.hour + dt_utc.minute / 60.0 + dt_utc.second / 3600.0
         jd_ut = swe.julday(dt_utc.year, dt_utc.month, dt_utc.day, hour_decimal)
         
-        # Расчет Лагны
         houses, ascmc = swe.houses_ex(jd_ut, lat, lon, b'P', swe.FLG_SIDEREAL)
-        lagna_sign, lagna_deg, _ = format_coords(ascmc[0])
+        lagna_sign, lagna_deg = format_coords(ascmc[0])
         
-        # Расчет планет
-        planets_map = {
-            "sun": swe.SUN,
-            "moon": swe.MOON,
-            "mars": swe.MARS,
-            "mercury": swe.MERCURY,
-            "jupiter": swe.JUPITER,
-            "venus": swe.VENUS,
-            "saturn": swe.SATURN,
-            "rahu": swe.MEAN_NODE
-        }
+        planets_order = [
+            ("sun", "☀️ Солнце (Сурья)", swe.SUN),
+            ("moon", "🌙 Луна (Чандра)", swe.MOON),
+            ("mars", "♂️ Марс (Мангала)", swe.MARS),
+            ("mercury", "☿ Меркурий (Будха)", swe.MERCURY),
+            ("jupiter", "♃ Юпитер (Гуру)", swe.JUPITER),
+            ("venus", "♀ Венера (Шукра)", swe.VENUS),
+            ("saturn", "♄ Сатурн (Шани)", swe.SATURN),
+            ("rahu", "☊ Раху", swe.MEAN_NODE)
+        ]
         
-        flat_result = {
-            "status": "success",
-            "lagna_sign": lagna_sign,
-            "lagna_deg": lagna_deg
-        }
-        
-        for p_name, p_id in planets_map.items():
+        lines = []
+        for p_key, p_label, p_id in planets_order:
             res, _ = swe.calc_ut(jd_ut, p_id, swe.FLG_SIDEREAL | swe.FLG_SPEED)
-            sign, deg_str, _ = format_coords(res[0])
-            flat_result[f"{p_name}_sign"] = sign
-            flat_result[f"{p_name}_deg"] = deg_str
+            sign, deg_str = format_coords(res[0])
+            lines.append(f"{p_label} — {sign}, {deg_str}")
             
-            if p_name == "rahu":
+            if p_key == "rahu":
                 ketu_pos = (res[0] + 180.0) % 360.0
-                k_sign, k_deg, _ = format_coords(ketu_pos)
-                flat_result["ketu_sign"] = k_sign
-                flat_result["ketu_deg"] = k_deg
-
-        return flat_result
+                k_sign, k_deg = format_coords(ketu_pos)
+                lines.append(f"☋ Кету — {k_sign}, {k_deg}")
+        
+        full_result_text = (
+            f"✨ Ваш восходящий знак (Лагна): {lagna_sign} ({lagna_deg})\n\n"
+            f"Положения планет в карте Раши:\n"
+            f"⬆️ Асцендент — {lagna_sign}, {lagna_deg}\n" +
+            "\n".join(lines)
+        )
+        
+        return {
+            "status": "success",
+            "result_text": full_result_text
+        }
 
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
